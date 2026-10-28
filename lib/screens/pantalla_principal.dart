@@ -1,16 +1,29 @@
+
 import 'package:flutter/material.dart';
 
 import '../models/personaje.dart';
 import '../services/personaje_servicio.dart';
+import '../services/favoritos_service.dart';
+
 import '../widgets/controles_paginacion.dart';
 import '../widgets/imagen_personaje.dart';
+import '../widgets/vista_error.dart';
+import '../widgets/vista_vacio.dart';
+
 import 'pantalla_detalle.dart';
+import 'pantalla_favorito.dart';
 
 class PantallaPrincipal extends StatefulWidget {
-  const PantallaPrincipal({super.key});
+  const PantallaPrincipal({
+    super.key,
+    required this.favoritosService,
+  });
+
+  final FavoritosService favoritosService;
 
   @override
-  State<PantallaPrincipal> createState() => _PantallaPrincipalState();
+  State<PantallaPrincipal> createState() =>
+      _PantallaPrincipalState();
 }
 
 class _PantallaPrincipalState extends State<PantallaPrincipal> {
@@ -45,8 +58,11 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
 
     try {
       final resultado = await _servicio.obtenerPagina(pagina);
+
       if (!mounted) return;
+
       _controlador.clear();
+
       setState(() {
         _personajes = resultado.personajes;
         _totalPaginas = resultado.totalPaginas;
@@ -55,6 +71,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
       });
     } catch (_) {
       if (!mounted) return;
+
       setState(() {
         _hayError = true;
         _cargando = false;
@@ -64,14 +81,50 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
 
   List<Personaje> get _filtrados {
     final q = _consulta.trim().toLowerCase();
+
     if (q.isEmpty) return _personajes;
-    return _personajes.where((p) => p.nombre.toLowerCase().contains(q)).toList();
+
+    return _personajes
+        .where((p) => p.nombre.toLowerCase().contains(q))
+        .toList();
+  }
+
+  Future<void> _alternarFavorito(int id) async {
+    try {
+      await widget.favoritosService.alternarFavorito(id);
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo guardar el favorito.'),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Rick & Morty')),
+      appBar: AppBar(
+        title: const Text('Rick & Morty'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.favorite),
+            tooltip: 'Mis favoritos',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PantallaFavorito(
+                    favoritosService: widget.favoritosService,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -81,7 +134,8 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                 controller: _controlador,
                 decoration: InputDecoration(
                   hintText: 'Buscar por nombre...',
-                  helperText: 'La búsqueda se aplica solo a la página actual',
+                  helperText:
+                      'La búsqueda se aplica solo a la página actual',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: _consulta.isEmpty
                       ? null
@@ -95,7 +149,9 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                         ),
                   border: const OutlineInputBorder(),
                 ),
-                onChanged: (valor) => setState(() => _consulta = valor),
+                onChanged: (valor) {
+                  setState(() => _consulta = valor);
+                },
               ),
             ),
             Expanded(child: _construirContenido()),
@@ -115,80 +171,87 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
 
   Widget _construirContenido() {
     if (_cargando) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
     }
 
     if (_hayError) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.wifi_off, size: 48),
-            const SizedBox(height: 12),
-            const Text('No se pudieron cargar los personajes'),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: () => _cargarPagina(_pagina),
-              child: const Text('Reintentar'),
-            ),
-          ],
-        ),
+      return VistaError(
+        onReintentar: () => _cargarPagina(_pagina),
       );
     }
 
     final personajes = _filtrados;
 
     if (personajes.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.search_off, size: 48),
-              SizedBox(height: 12),
-              Text(
-                'No se encontraron personajes con ese nombre en esta página.',
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
+      return const VistaVacio(
+        mensaje:
+            'No se encontraron personajes con ese nombre en esta página.',
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: personajes.length,
-      itemBuilder: (context, index) {
-        final p = personajes[index];
-        return Card(
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(10),
-            leading: ImagenPersonaje(url: p.imagen),
-            title: Text(p.nombre),
-            subtitle: Row(
-              children: [
-                Icon(Icons.circle, size: 10, color: p.colorEstado),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    '${p.estadoTexto} · ${p.especie}',
-                    overflow: TextOverflow.ellipsis,
+    return AnimatedBuilder(
+      animation: widget.favoritosService,
+      builder: (context, _) {
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: personajes.length,
+          itemBuilder: (context, index) {
+            final p = personajes[index];
+
+            final esFavorito =
+                widget.favoritosService.esFavorito(p.id);
+
+            return Card(
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(10),
+                leading: ImagenPersonaje(url: p.imagen),
+                title: Text(p.nombre),
+                subtitle: Row(
+                  children: [
+                    Icon(
+                      Icons.circle,
+                      size: 10,
+                      color: p.colorEstado,
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        '${p.estadoTexto} · ${p.especie}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                trailing: IconButton(
+                  icon: Icon(
+                    esFavorito
+                        ? Icons.favorite
+                        : Icons.favorite_border,
+                    color: esFavorito ? Colors.red : null,
                   ),
+                  tooltip: esFavorito
+                      ? 'Quitar de favoritos'
+                      : 'Agregar a favoritos',
+                  onPressed: () => _alternarFavorito(p.id),
                 ),
-              ],
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => PantallaDetalle(personaje: p),
-                ),
-              );
-            },
-          ),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                     
+builder: (_) => PantallaDetalle(
+  personaje: p,
+  favoritosService: widget.favoritosService,
+),
+
+                    ),
+                  );
+                },
+              ),
+            );
+          },
         );
       },
     );

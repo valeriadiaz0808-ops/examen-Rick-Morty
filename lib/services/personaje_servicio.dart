@@ -29,4 +29,30 @@ class PersonajeServicio {
       totalPaginas: info['pages'] as int? ?? 1,
     );
   }
+
+  Future<List<Personaje>> obtenerPorIds(List<int> ids) async {
+    if (ids.isEmpty) return [];
+
+    final respuesta = await http
+        .get(
+          Uri.parse('$_url/${ids.join(",")}'),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    if (respuesta.statusCode != 200) {
+      throw Exception('No se pudieron cargar los favoritos');
+    }
+
+    final datos = jsonDecode(respuesta.body);
+
+    if (datos is List) {
+      return datos
+          .map((item) => Personaje.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+
+    return [
+      Personaje.fromJson(datos as Map<String, dynamic>),
+    ];
+  }
 }
